@@ -6,7 +6,7 @@ import re
 import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
-import PyPDF2
+import pdfplumber
 import docx
 
 # --- 1. تحميل مكتبات اللغة ---
@@ -19,7 +19,7 @@ def download_nltk_data():
 download_nltk_data()
 
 # --- 2. إعدادات الصفحة ---
-st.set_page_config(page_title="Keyword Extractor App", layout="centered")
+st.set_page_config(page_title="Keyword Extractor App", layout="wide")
 st.title("استخراج الكلمات المفتاحية 🚀")
 st.write("تقدر تلصق النص، أو ترفع أي ملف (TXT, CSV, PDF, Word) عشان نستخرج الكلمات المفتاحية منه.")
 
@@ -49,7 +49,7 @@ def clean_text(text):
     words = [lemmatizer.lemmatize(w) for w in text.split() if w not in stop_words and len(w) >= 3]
     return ' '.join(words)
 
-# --- 5. دالة الاستخراج والعرض ---
+# --- 5. دالة الاستخراج والعرض (تم التعديل لعرض 10 كلمات) ---
 def process_and_show_keywords(input_text):
     with st.spinner("جاري تحليل النص واستخراج الكلمات..."):
         cleaned_input = clean_text(input_text)
@@ -57,21 +57,24 @@ def process_and_show_keywords(input_text):
         feature_names = vectorizer.get_feature_names_out()
         row_scores = tfidf_matrix.toarray()[0]
         
-        top_indices = np.argsort(row_scores)[-5:][::-1]
+        # استخراج أعلى 10 كلمات بدل 5
+        top_indices = np.argsort(row_scores)[-10:][::-1]
         
-        st.subheader("🔑 أهم الكلمات المفتاحية:")
+        st.subheader("🔑 أهم 10 كلمات مفتاحية:")
         found_keywords = False
-        cols = st.columns(5)
         
-        for col, idx in zip(cols, top_indices):
-            score = row_scores[idx]
-            if score > 0:
-                found_keywords = True
-                with col:
-                    st.success(f"**{feature_names[idx]}**\n\n{score:.3f}")
+        # تقسيم الـ 10 كلمات على صفين (كل صف 5) عشان الشكل يكون منظم
+        for i in range(0, 10, 5):
+            cols = st.columns(5)
+            for col, idx in zip(cols, top_indices[i:i+5]):
+                score = row_scores[idx]
+                if score > 0:
+                    found_keywords = True
+                    with col:
+                        st.success(f"**{feature_names[idx]}**\n\n{score:.3f}")
         
         if not found_keywords:
-            st.info("لم يتم العثور على كلمات مفتاحية قوية. جرب إدخال نص علمي أطول.")
+            st.info("لم يتم العثور على كلمات مفتاحية قوية مطابقة للقاموس.")
 
 # --- 6. واجهة المستخدم (التبويبات) ---
 tab1, tab2 = st.tabs(["📝 إدخال نص يدوياً", "📁 رفع ملف"])
@@ -87,7 +90,6 @@ with tab1:
 
 # التبويب الثاني: رفع الملف
 with tab2:
-    # ضفنا دعم لـ pdf و docx
     uploaded_file = st.file_uploader("ارفع ملف (TXT, CSV, PDF, DOCX)", type=['txt', 'csv', 'pdf', 'docx'])
     
     if uploaded_file is not None:
@@ -98,13 +100,13 @@ with tab2:
         if file_name.endswith('.txt'):
             file_text = uploaded_file.read().decode('utf-8')
             
-        # 2. قراءة ملفات PDF
+        # 2. قراءة ملفات PDF باستخدام المكتبة القوية pdfplumber
         elif file_name.endswith('.pdf'):
-            pdf_reader = PyPDF2.PdfReader(uploaded_file)
-            for page in pdf_reader.pages:
-                extracted = page.extract_text()
-                if extracted:
-                    file_text += extracted + "\n"
+            with pdfplumber.open(uploaded_file) as pdf:
+                for page in pdf.pages:
+                    extracted = page.extract_text()
+                    if extracted:
+                        file_text += extracted + "\n"
                     
         # 3. قراءة ملفات Word
         elif file_name.endswith('.docx'):
@@ -119,9 +121,9 @@ with tab2:
             row_index = st.number_input("اختر رقم الصف (البحث) اللي عايز تفحصه:", min_value=0, max_value=len(df_uploaded)-1, step=1)
             file_text = str(df_uploaded[col_to_process].iloc[row_index])
 
-        # عرض النص المستخرج وزرار التحليل (للملفات غير الـ CSV)
+        # عرض النص المستخرج وزرار التحليل
         if file_text.strip() != "":
-            st.info("✅ تم قراءة الملف بنجاح.")
+            st.info("✅ تم قراءة الملف بنجاح وتصحيح المسافات.")
             st.write("**النص المستخرج (أول 300 حرف):**", file_text[:300] + "...")
             
             if st.button("استخراج الكلمات من الملف 🔍", key="btn_file"):
